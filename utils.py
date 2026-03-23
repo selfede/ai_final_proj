@@ -6,7 +6,6 @@ Import in any notebook with:  import sys; sys.path.append('../'); from utils imp
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 ROOT      = Path(__file__).parent
@@ -14,14 +13,16 @@ RAW       = ROOT / "data" / "raw"
 PROCESSED = ROOT / "data" / "processed"
 PROCESSED.mkdir(parents=True, exist_ok=True)
 
-# ── Transforms ────────────────────────────────────────────────────────────────
-def log_transform(series):
-    """Apply log1p to a Series or array (safe for zeros)."""
-    return np.log1p(series)
+# ── Classification bracket constants ─────────────────────────────────────────
+# Project-level tiers (per-grant amount)
+PROJECT_BINS   = [0, 10_000, 131_100, 1_000_000, float('inf')]
+PROJECT_LABELS = {0: 'Micro (<$10k)', 1: 'Small ($10k–$131k)',
+                  2: 'Large ($131k–$1M)', 3: 'Major (>$1M)'}
 
-def inverse_log_transform(series):
-    """Reverse log1p back to original dollar scale."""
-    return np.expm1(series)
+# Disaster-level tiers (total payout per disaster event)
+DISASTER_BINS   = [0, 1_000_000, 50_000_000, 500_000_000, float('inf')]
+DISASTER_LABELS = {0: 'Minor (<$1M)', 1: 'Moderate ($1M–$50M)',
+                   2: 'Major ($50M–$500M)', 3: 'Catastrophic (>$500M)'}
 
 # ── Train/test split ──────────────────────────────────────────────────────────
 def time_based_split(df, date_col, split_year):
@@ -71,28 +72,28 @@ def add_prior_disasters(df, state_col, date_col, window_years=5):
     return df
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
-def regression_metrics(y_true, y_pred, label="Model"):
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+
+def classification_metrics(y_true, y_pred, label="Model", target_names=None):
     """
-    Print and return MAE, RMSE, R², MAPE for a regression model.
-    All metrics computed on the log-transformed scale passed in.
+    Print and return Accuracy and Weighted F1 for a classification model.
+    Also prints the full sklearn classification report.
     """
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
 
-    mae  = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2   = r2_score(y_true, y_pred)
-    mask = y_true != 0
-    mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+    acc = accuracy_score(y_true, y_pred)
+    f1  = f1_score(y_true, y_pred, average='weighted', zero_division=0)
 
     print(f"\n{'='*45}")
     print(f"  {label}")
     print(f"{'='*45}")
-    print(f"  MAE  : {mae:>10.4f}")
-    print(f"  RMSE : {rmse:>10.4f}")
-    print(f"  R²   : {r2:>10.4f}")
-    print(f"  MAPE : {mape:>9.2f}%")
-    return {"label": label, "MAE": mae, "RMSE": rmse, "R2": r2, "MAPE": mape}
+    print(f"  Accuracy   : {acc:>8.4f}")
+    print(f"  F1 (wtd)   : {f1:>8.4f}")
+    print()
+    print(classification_report(y_true, y_pred, target_names=target_names,
+                                zero_division=0))
+    return {"label": label, "Accuracy": acc, "F1_weighted": f1}
 
 # ── Quick summary ─────────────────────────────────────────────────────────────
 def data_summary(df, name="DataFrame"):
